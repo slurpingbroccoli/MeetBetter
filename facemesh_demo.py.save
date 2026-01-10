@@ -1,0 +1,108 @@
+import cv2
+import numpy as np
+import mediapipe as mp
+
+mp_face = mp.solutions.face_mesh
+mesh = mp_face.FaceMesh(static_image_mode=False, max_num_faces=1, refine_landmarks=True)
+
+cap = cv2.VideoCapture(0)
+
+def draw_card(frame, x, y, lines, w=360, h=140, alpha=0.75):
+    """Draw a translucent popup card with text."""
+    H, W = frame.shape[:2]
+
+    # Keep card inside screen
+    x = max(0, min(x, W - w))
+    y = max(0, min(y, H - h))
+
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (x, y), (x + w, y + h), (0, 0, 0), -1)  # black panel
+    frame[:] = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
+
+    # Text
+    ty = y + 30
+    for line in lines:
+        cv2.putText(frame, line, (x + 15, ty),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        ty += 28
+
+def face_bbox_from_landmarks(lms, w, h, pad=20):
+    xs = [lm.x * w for lm in lms]
+    ys = [lm.y * h for lm in lms]
+    x1, x2 = int(min(xs)) - pad, int(max(xs)) + pad
+    y1, y2 = int(min(ys)) - pad, int(max(ys)) + pad
+    return x1, y1, x2, y2
+
+while True:
+    ok, frame = cap.read()
+    if not ok:
+        break
+
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    res = mesh.process(rgb)
+
+    H, W = frame.shape[:2]
+
+    if res.multi_face_landmarks:
+        lms = res.multi_face_landmarks[0].landmark
+        x1, y1, x2, y2 = face_bbox_from_landmarks(lms, W, H)
+
+        # draw face box (optional)
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+        # pop-up card anchored near the face
+        card_x = x2 + 15          # to the right of face
+        card_y = y1              # aligned with top of face
+
+        lines = [
+            "Name: Darren",
+            "Role: Student",
+            "Ask: Finance, Hackathons",
+            "Pref: Captions / slower speech"
+        ]
+        draw_card(frame, card_x, card_y, lines)
+
+    else:
+        cv2.putText(frame, "No face detected", (20, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+
+    cv2.imshow("MeetBetter", frame)
+    if (cv2.waitKey(1) & 0xFF) == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
