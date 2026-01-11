@@ -27,9 +27,9 @@ MeetBetter focuses on **low-effort accessibility** by:
 2. When you look at someone, MeetBetter **detects their face** and places a small **prompt card** beside them on-screen.
 3. The card shows **minimal, useful context** (name + a few quick talking points) so you can start a conversation without pulling out your phone.
 4. If you **say a name out loud**, MeetBetter can **lock onto that person** briefly to keep the card stable and reduce “jumping” between people.
-5. After the interaction, you can use the same quick info to **remember what to follow up on** (prototype/demo content may be placeholder or locally stored).
+5. After the interaction, you can use the same quick info to **remember what to follow up on** (prototype/demo content may be a placeholder or locally stored).
 
-> Note: This is a prototype UI/UX demo. Any “profile” content shown can be placeholder or stored locally for the hackathon.
+> Note: This is a prototype UI/UX demo. Any “profile” content shown is a placeholder or stored locally for the hackathon.
 
 ---
 
