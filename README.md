@@ -1,7 +1,7 @@
 # MeetBetter: Accessibility-First Networking Assistant
 Built by: [Emily Yan](https://github.com/emilyzyy), [Edison Cai](https://github.com/EdisonCai2007), [Vincent Bei](), and [Lily You](https://github.com/slurpingbroccoli)
 
-## Overview
+## The Problem
 Networking and the ability to build connections is one of the **most decisive factors in the job search**. However, it can be hard to manage thorough preparation for networking events atop a heavy courseload, personal projects, friends, family, and more. MeetBetter reduces this burden, making events more approachable and accessible for everyone.
 
 ---
