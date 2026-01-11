@@ -1,5 +1,6 @@
 # app.py
 import time
+import threading
 from pathlib import Path
 
 import cv2
@@ -15,26 +16,81 @@ DB_PATH = Path("db/face_db.npz")
 # If it falsely recognizes random faces, RAISE a bit (e.g. 0.88)
 SIM_THRESHOLD = 0.82
 
+# How many camera candidates to keep around for fusion
+CAM_TOPK = 5
+
 # Card smoothing
 ALPHA = 0.25
 smoothed = {}
 
 # -----------------------------
-# VOICE LOCK (set by main.py)
+# Shared state (thread-safe)
 # -----------------------------
+_state_lock = threading.Lock()
+
 VOICE_LOCK_NAME: str | None = None
 VOICE_LOCK_UNTIL: float = 0.0
 
+TRY_AGAIN_MSG: str | None = None
+TRY_AGAIN_UNTIL: float = 0.0
 
-def set_voice_lock(name: str, seconds: float = 6.0) -> None:
+# Latest camera candidates: list[tuple[name, sim]]
+CAMERA_TOPK: list[tuple[str, float]] = []
+CAMERA_UPDATED_AT: float = 0.0
+
+
+def set_voice_lock(name: str, seconds: float = 10.0) -> None:
     """Called from mic thread to force UI to show this name for a bit."""
     global VOICE_LOCK_NAME, VOICE_LOCK_UNTIL
+
     n = (name or "").strip()
     if not n:
         return
-    VOICE_LOCK_NAME = n
-    VOICE_LOCK_UNTIL = time.time() + float(seconds)
-    print(f"🔒 VOICE LOCK -> {VOICE_LOCK_NAME} ({seconds:.1f}s)")
+
+    with _state_lock:
+        VOICE_LOCK_NAME = n
+        VOICE_LOCK_UNTIL = time.time() + float(seconds)
+
+    print(f"🔒 VOICE LOCK -> {n} ({seconds:.1f}s)")
+
+
+def clear_voice_lock() -> None:
+    global VOICE_LOCK_NAME, VOICE_LOCK_UNTIL
+    with _state_lock:
+        VOICE_LOCK_NAME = None
+        VOICE_LOCK_UNTIL = 0.0
+
+
+def set_try_again(msg: str = "Please try again", seconds: float = 2.5) -> None:
+    """Called from mic thread to show a temporary 'try again' overlay."""
+    global TRY_AGAIN_MSG, TRY_AGAIN_UNTIL
+    with _state_lock:
+        TRY_AGAIN_MSG = msg
+        TRY_AGAIN_UNTIL = time.time() + float(seconds)
+    print(f"⚠️ TRY AGAIN -> {msg} ({seconds:.1f}s)")
+
+
+def get_camera_topk(max_age_sec: float = 1.0) -> list[tuple[str, float]]:
+    """Read the latest camera top-K list (thread-safe)."""
+    now = time.time()
+    with _state_lock:
+        if now - CAMERA_UPDATED_AT > max_age_sec:
+            return []
+        return list(CAMERA_TOPK)
+
+
+def _publish_camera_topk(topk: list[tuple[str, float]]) -> None:
+    global CAMERA_TOPK, CAMERA_UPDATED_AT
+    with _state_lock:
+        CAMERA_TOPK = list(topk)
+        CAMERA_UPDATED_AT = time.time()
+
+
+def _smooth(key: str, new: float) -> float:
+    old = smoothed.get(key, new)
+    val = (1 - ALPHA) * old + ALPHA * new
+    smoothed[key] = val
+    return val
 
 
 def draw_card(img, x, y, lines, padding=12):
@@ -66,14 +122,9 @@ def draw_card(img, x, y, lines, padding=12):
         ty += line_h
 
 
-def _smooth(key: str, new: float) -> float:
-    old = smoothed.get(key, new)
-    val = (1 - ALPHA) * old + ALPHA * new
-    smoothed[key] = val
-    return val
-
-
 def main():
+    global VOICE_LOCK_NAME, VOICE_LOCK_UNTIL, TRY_AGAIN_MSG, TRY_AGAIN_UNTIL
+
     if not MODEL_PATH.exists():
         raise FileNotFoundError(f"Missing model: {MODEL_PATH.resolve()}")
     if not DB_PATH.exists():
@@ -104,16 +155,25 @@ def main():
         now = time.time()
         H, W = frame.shape[:2]
 
-        # -----------------------------
-        # If VOICE LOCK is active: freeze the card to that name
-        # -----------------------------
-        if VOICE_LOCK_NAME and now < VOICE_LOCK_UNTIL:
-            ttl = VOICE_LOCK_UNTIL - now
-            draw_card(frame, 20, 20, [f"Name: {VOICE_LOCK_NAME}", f"VOICE LOCK: {ttl:.1f}s", "ESC to quit"])
+        # snapshot overlay states (thread-safe)
+        with _state_lock:
+            ta_msg = TRY_AGAIN_MSG
+            ta_until = TRY_AGAIN_UNTIL
+            vl_name = VOICE_LOCK_NAME
+            vl_until = VOICE_LOCK_UNTIL
+
+        # Try-again overlay (does NOT stop camera)
+        if ta_msg and now < ta_until:
+            draw_card(frame, 20, 20, [f"⚠️ {ta_msg}", f"{(ta_until - now):.1f}s", "ESC to quit"])
+
+        # Voice-lock overlay (DOES stop camera display identity changes)
+        if vl_name and now < vl_until:
+            ttl = vl_until - now
+            draw_card(frame, 20, 120, [f"Name: {vl_name}", f"VOICE LOCK: {ttl:.1f}s", "ESC to quit"])
             cv2.imshow("MeetBetter (local recognition)", frame)
             if (cv2.waitKey(1) & 0xFF) == 27:
                 break
-            continue  # IMPORTANT: ignore camera identity while voice lock is active
+            continue
 
         # MediaPipe expects RGB
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -121,7 +181,8 @@ def main():
 
         result = detector.detect(mp_image)
         if not result.detections:
-            draw_card(frame, 20, 20, ["Name: Unknown", "No face", "ESC to quit"])
+            _publish_camera_topk([])
+            draw_card(frame, 20, 120, ["Name: Unknown", "No face", "ESC to quit"])
             cv2.imshow("MeetBetter (local recognition)", frame)
             if (cv2.waitKey(1) & 0xFF) == 27:
                 break
@@ -144,46 +205,47 @@ def main():
 
         crop = rgb[y1:y2, x1:x2]
         if crop.size == 0:
-            draw_card(frame, 20, 20, ["Name: Unknown", "Bad crop", "ESC to quit"])
+            _publish_camera_topk([])
+            draw_card(frame, 20, 120, ["Name: Unknown", "Bad crop", "ESC to quit"])
             cv2.imshow("MeetBetter (local recognition)", frame)
             if (cv2.waitKey(1) & 0xFF) == 27:
                 break
             continue
 
-        # ---------------------------------------------------------
-        # ✅ IMPORTANT FIX:
-        # Your DB was enrolled as 112x112x3 flattened (37632 dims),
-        # but runtime was using 32x32x3 (3072 dims).
-        # Make runtime match enrollment: use 112x112.
-        # ---------------------------------------------------------
+        # IMPORTANT: match enrollment dims (112x112x3 = 37632)
         crop_small = cv2.resize(crop, (112, 112), interpolation=cv2.INTER_AREA).astype(np.float32)
         q = crop_small.flatten()
         q = q / (np.linalg.norm(q) + 1e-9)
 
-        # If something is still mismatched, fail loudly with a helpful message
         if embs.shape[1] != q.shape[0]:
             raise RuntimeError(
                 f"Embedding dim mismatch: DB={embs.shape[1]} vs runtime={q.shape[0]}. "
                 f"Re-run enroll.py or ensure both use same resize."
             )
 
-        sims = embs @ q
-        best_idx = int(np.argmax(sims))
-        best_sim = float(sims[best_idx])
-        best_name = str(labels[best_idx])
+        sims = embs @ q  # (N,)
+        k = min(CAM_TOPK, sims.shape[0])
+        top_idx = np.argsort(-sims)[:k]
+        topk = [(str(labels[i]), float(sims[i])) for i in top_idx]
+        _publish_camera_topk(topk)
 
-        # smooth similarity
+        best_name, best_sim = topk[0]
         best_sim = _smooth("sim", best_sim)
 
         name = "Unknown"
         if best_sim >= SIM_THRESHOLD:
             name = best_name
 
+        # Card near face
+        anchor_x = x2 + 12
+        anchor_y = max(0, y1 - 10)
+
+        top2_line = " / ".join([f"{n}:{s:.3f}" for (n, s) in topk[:2]])
         draw_card(
             frame,
-            x2 + 12,
-            max(0, y1 - 10),
-            [f"Name: {name}", f"Similarity: {best_sim:.3f}", "ESC to quit"],
+            anchor_x,
+            anchor_y,
+            [f"Name: {name}", f"Sim: {best_sim:.3f}", f"Top: {top2_line}", "ESC to quit"],
         )
 
         cv2.imshow("MeetBetter (local recognition)", frame)
