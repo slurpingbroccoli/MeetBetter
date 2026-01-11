@@ -16,7 +16,7 @@ INTRO_PATTERNS = [
     r"\bi am (\w+)",
     r"\bi'm (\w+)",
     r"\bthis is (\w+)",
-    r"\bcall me (\w+)"
+    r"\bcall me (\w+)",
 ]
 # ------------------------
 
@@ -28,6 +28,7 @@ if not KNOWN_NAMES:
     print("No names in profiles.json")
     sys.exit(1)
 
+
 def extract_name(text):
     t = text.lower()
     for p in INTRO_PATTERNS:
@@ -36,20 +37,25 @@ def extract_name(text):
             return m.group(1)
     return None
 
+
 def fuzzy_match(name):
-    match, score, _ = process.extractOne(
-        name, KNOWN_NAMES, scorer=fuzz.ratio
-    )
+    match, score, _ = process.extractOne(name, KNOWN_NAMES, scorer=fuzz.ratio)
     if score >= 80:
         return match
     return None
 
+
 q = queue.Queue()
+
 
 def audio_callback(indata, frames, time, status):
     q.put(bytes(indata))
 
-def main():
+
+def main(callback=None):
+    """
+    If callback is provided, call callback(matched_name) whenever a name is detected.
+    """
     print("🔊 Loading Vosk model…")
     model = Model(MODEL_PATH)
     rec = KaldiRecognizer(model, SAMPLE_RATE)
@@ -81,8 +87,17 @@ def main():
                 if match:
                     print(f"✅ Name detected: {match}")
                     print(f"Profile → {PROFILES[match]}")
+
+                    # ✅ NEW: notify main/app so UI can lock
+                    if callback is not None:
+                        try:
+                            callback(match)
+                        except Exception as e:
+                            print("callback error:", e)
+
                 else:
                     print("❌ No matching name")
+
 
 if __name__ == "__main__":
     main()

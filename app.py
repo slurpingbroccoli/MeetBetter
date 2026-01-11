@@ -1,8 +1,9 @@
+# app.py
 import time
-import numpy as np
-import cv2
 from pathlib import Path
 
+import cv2
+import numpy as np
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
@@ -10,14 +11,31 @@ from mediapipe.tasks.python import vision
 MODEL_PATH = Path("models/blaze_face_short_range.tflite")
 DB_PATH = Path("db/face_db.npz")
 
-# Threshold for the placeholder pixel-embedding similarity.
-# If it doesn't recognize you, LOWER it a bit (e.g. 0.78).
-# If it falsely recognizes random faces, RAISE it (e.g. 0.88).
+# If it doesn't recognize you, LOWER a bit (e.g. 0.78)
+# If it falsely recognizes random faces, RAISE a bit (e.g. 0.88)
 SIM_THRESHOLD = 0.82
 
 # Card smoothing
 ALPHA = 0.25
 smoothed = {}
+
+# -----------------------------
+# VOICE LOCK (set by main.py)
+# -----------------------------
+VOICE_LOCK_NAME: str | None = None
+VOICE_LOCK_UNTIL: float = 0.0
+
+
+def set_voice_lock(name: str, seconds: float = 6.0) -> None:
+    """Called from mic thread to force UI to show this name for a bit."""
+    global VOICE_LOCK_NAME, VOICE_LOCK_UNTIL
+    n = (name or "").strip()
+    if not n:
+        return
+    VOICE_LOCK_NAME = n
+    VOICE_LOCK_UNTIL = time.time() + float(seconds)
+    print(f"🔒 VOICE LOCK -> {VOICE_LOCK_NAME} ({seconds:.1f}s)")
+
 
 def draw_card(img, x, y, lines, padding=12):
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -39,8 +57,7 @@ def draw_card(img, x, y, lines, padding=12):
 
     overlay = img.copy()
     cv2.rectangle(overlay, (x, y), (x + card_w, y + card_h), (0, 0, 0), -1)
-    alpha = 0.65
-    cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, img)
+    cv2.addWeighted(overlay, 0.65, img, 0.35, 0, img)
     cv2.rectangle(img, (x, y), (x + card_w, y + card_h), (255, 255, 255), 2)
 
     ty = y + padding + 18
@@ -48,18 +65,13 @@ def draw_card(img, x, y, lines, padding=12):
         cv2.putText(img, t, (x + padding, ty), font, scale, (255, 255, 255), thickness)
         ty += line_h
 
-def face_embed_placeholder(face_bgr):
-    """Same embedding method as enroll.py: resize to 112x112 and flatten pixels."""
-    face = cv2.resize(face_bgr, (112, 112))
-    emb = face.flatten().astype(np.float32) / 255.0
-    # normalize to unit length so dot product behaves like cosine similarity
-    norm = np.linalg.norm(emb) + 1e-9
-    return emb / norm
 
-def best_match(query_emb, db_embs, db_labels):
-    sims = db_embs @ query_emb  # cosine similarity (because normalized)
-    idx = int(np.argmax(sims))
-    return str(db_labels[idx]), float(sims[idx])
+def _smooth(key: str, new: float) -> float:
+    old = smoothed.get(key, new)
+    val = (1 - ALPHA) * old + ALPHA * new
+    smoothed[key] = val
+    return val
+
 
 def main():
     if not MODEL_PATH.exists():
@@ -67,17 +79,15 @@ def main():
     if not DB_PATH.exists():
         raise FileNotFoundError(f"Missing DB: {DB_PATH.resolve()} (run python enroll.py first)")
 
-    db = np.load(DB_PATH, allow_pickle=False)
-    db_embs = db["embeddings"].astype(np.float32)
-    db_labels = db["labels"]
+    db = np.load(DB_PATH, allow_pickle=True)
+    embs = db["embeddings"].astype(np.float32)
+    labels = db["labels"]
 
-    # Normalize stored embeddings (in case they aren't)
-    db_embs = db_embs / (np.linalg.norm(db_embs, axis=1, keepdims=True) + 1e-9)
+    # normalize db embeddings
+    embs = embs / (np.linalg.norm(embs, axis=1, keepdims=True) + 1e-9)
 
-    options = vision.FaceDetectorOptions(
-        base_options=python.BaseOptions(model_asset_path=str(MODEL_PATH)),
-        min_detection_confidence=0.6,
-    )
+    base_options = python.BaseOptions(model_asset_path=str(MODEL_PATH))
+    options = vision.FaceDetectorOptions(base_options=base_options)
     detector = vision.FaceDetector.create_from_options(options)
 
     cap = cv2.VideoCapture(0)
@@ -91,68 +101,98 @@ def main():
         if not ok:
             break
 
+        now = time.time()
         H, W = frame.shape[:2]
+
+        # -----------------------------
+        # If VOICE LOCK is active: freeze the card to that name
+        # -----------------------------
+        if VOICE_LOCK_NAME and now < VOICE_LOCK_UNTIL:
+            ttl = VOICE_LOCK_UNTIL - now
+            draw_card(frame, 20, 20, [f"Name: {VOICE_LOCK_NAME}", f"VOICE LOCK: {ttl:.1f}s", "ESC to quit"])
+            cv2.imshow("MeetBetter (local recognition)", frame)
+            if (cv2.waitKey(1) & 0xFF) == 27:
+                break
+            continue  # IMPORTANT: ignore camera identity while voice lock is active
+
+        # MediaPipe expects RGB
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
 
         result = detector.detect(mp_image)
-        detections = result.detections or []
+        if not result.detections:
+            draw_card(frame, 20, 20, ["Name: Unknown", "No face", "ESC to quit"])
+            cv2.imshow("MeetBetter (local recognition)", frame)
+            if (cv2.waitKey(1) & 0xFF) == 27:
+                break
+            continue
 
-        for i, det in enumerate(detections):
-            box = det.bounding_box
-            x1 = max(0, box.origin_x)
-            y1 = max(0, box.origin_y)
-            x2 = min(W, x1 + box.width)
-            y2 = min(H, y1 + box.height)
+        # pick the biggest bbox
+        def area(det):
+            bb = det.bounding_box
+            return bb.width * bb.height
 
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        det = max(result.detections, key=area)
+        bb = det.bounding_box
 
-            crop = frame[y1:y2, x1:x2]
-            name = "Unknown"
-            score = 0.0
+        x1 = max(0, int(bb.origin_x))
+        y1 = max(0, int(bb.origin_y))
+        x2 = min(W, int(bb.origin_x + bb.width))
+        y2 = min(H, int(bb.origin_y + bb.height))
 
-            if crop.size > 0:
-                qemb = face_embed_placeholder(crop)
-                best_name, sim = best_match(qemb, db_embs, db_labels)
-                score = sim
-                if sim >= SIM_THRESHOLD:
-                    name = best_name
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
-            # Card placement (avoid off-screen)
-            card_w_guess = 320
-            gap = 12
-            place_right = (x2 + gap + card_w_guess) < W
-            anchor_x = x2 + gap if place_right else (x1 - gap - card_w_guess)
-            anchor_y = max(0, y1 - 10)
+        crop = rgb[y1:y2, x1:x2]
+        if crop.size == 0:
+            draw_card(frame, 20, 20, ["Name: Unknown", "Bad crop", "ESC to quit"])
+            cv2.imshow("MeetBetter (local recognition)", frame)
+            if (cv2.waitKey(1) & 0xFF) == 27:
+                break
+            continue
 
-            # Smooth
-            if i not in smoothed:
-                smoothed[i] = (float(anchor_x), float(anchor_y))
-            else:
-                sx, sy = smoothed[i]
-                smoothed[i] = (sx + ALPHA * (anchor_x - sx), sy + ALPHA * (anchor_y - sy))
+        # ---------------------------------------------------------
+        # ✅ IMPORTANT FIX:
+        # Your DB was enrolled as 112x112x3 flattened (37632 dims),
+        # but runtime was using 32x32x3 (3072 dims).
+        # Make runtime match enrollment: use 112x112.
+        # ---------------------------------------------------------
+        crop_small = cv2.resize(crop, (112, 112), interpolation=cv2.INTER_AREA).astype(np.float32)
+        q = crop_small.flatten()
+        q = q / (np.linalg.norm(q) + 1e-9)
 
-            sx, sy = smoothed[i]
-
-            draw_card(
-                frame,
-                int(sx),
-                int(sy),
-                [
-                    f"Name: {name}",
-                    f"Similarity: {score:.3f}",
-                    "ESC to quit",
-                ],
+        # If something is still mismatched, fail loudly with a helpful message
+        if embs.shape[1] != q.shape[0]:
+            raise RuntimeError(
+                f"Embedding dim mismatch: DB={embs.shape[1]} vs runtime={q.shape[0]}. "
+                f"Re-run enroll.py or ensure both use same resize."
             )
 
+        sims = embs @ q
+        best_idx = int(np.argmax(sims))
+        best_sim = float(sims[best_idx])
+        best_name = str(labels[best_idx])
+
+        # smooth similarity
+        best_sim = _smooth("sim", best_sim)
+
+        name = "Unknown"
+        if best_sim >= SIM_THRESHOLD:
+            name = best_name
+
+        draw_card(
+            frame,
+            x2 + 12,
+            max(0, y1 - 10),
+            [f"Name: {name}", f"Similarity: {best_sim:.3f}", "ESC to quit"],
+        )
+
         cv2.imshow("MeetBetter (local recognition)", frame)
-        key = cv2.waitKey(1) & 0xFF
-        if key == 27:
+        if (cv2.waitKey(1) & 0xFF) == 27:
             break
 
     cap.release()
     cv2.destroyAllWindows()
-    detector.close()
+
 
 if __name__ == "__main__":
     main()
