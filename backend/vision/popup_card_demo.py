@@ -140,11 +140,6 @@ try:
             to_pt = (int(sx), int(sy) + 20) if place_right else (int(sx) + card_w_guess, int(sy) + 20)
             cv2.line(frame, from_pt, to_pt, (0, 255, 0), 2)
 
-        # debug block (proves THIS file is running)
-        cv2.rectangle(frame, (0, 0), (520, 110), (0, 0, 255), -1)
-        cv2.putText(frame, "DEBUG BLOCK", (20, 75),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.6, (255, 255, 255), 4)
-
         status = "FACE DETECTED" if face_present else "NO FACE"
         cv2.putText(frame, f"{status} | Query: {query_text}", (20, 150),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
