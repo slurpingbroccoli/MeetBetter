@@ -15,38 +15,118 @@ DB_PATH = Path("db/face_db.npz")
 # If it falsely recognizes random faces, RAISE it (e.g. 0.88).
 SIM_THRESHOLD = 0.82
 
-# Card smoothing
-ALPHA = 0.25
+# Card smoothing 
+ALPHA = 0.45
 smoothed = {}
 
-def draw_card(img, x, y, lines, padding=12):
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    scale = 0.65
-    thickness = 2
-    line_h = 22
+def _wrap_text(text, font, scale, thickness, max_width):
+    words = str(text).split()
+    if not words:
+        return [""]
+    lines, cur = [], words[0]
+    for w in words[1:]:
+        test = cur + " " + w
+        (tw, _), _ = cv2.getTextSize(test, font, scale, thickness)
+        if tw <= max_width:
+            cur = test
+        else:
+            lines.append(cur)
+            cur = w
+    lines.append(cur)
+    return lines
 
-    max_w = 0
-    for t in lines:
-        (w, _), _ = cv2.getTextSize(t, font, scale, thickness)
-        max_w = max(max_w, w)
+def _rounded_rect(img, x, y, w, h, r, color, thickness=-1):
+    # filled rounded rect
+    if thickness == -1:
+        cv2.rectangle(img, (x+r, y), (x+w-r, y+h), color, -1, cv2.LINE_AA)
+        cv2.rectangle(img, (x, y+r), (x+w, y+h-r), color, -1, cv2.LINE_AA)
+        cv2.ellipse(img, (x+r, y+r), (r, r), 180, 0, 90, color, -1, cv2.LINE_AA)
+        cv2.ellipse(img, (x+w-r, y+r), (r, r), 270, 0, 90, color, -1, cv2.LINE_AA)
+        cv2.ellipse(img, (x+r, y+h-r), (r, r), 90, 0, 90, color, -1, cv2.LINE_AA)
+        cv2.ellipse(img, (x+w-r, y+h-r), (r, r), 0, 0, 90, color, -1, cv2.LINE_AA)
+    else:
+        # outline: draw 4 lines + 4 arcs
+        cv2.line(img, (x+r, y), (x+w-r, y), color, thickness, cv2.LINE_AA)
+        cv2.line(img, (x+r, y+h), (x+w-r, y+h), color, thickness, cv2.LINE_AA)
+        cv2.line(img, (x, y+r), (x, y+h-r), color, thickness, cv2.LINE_AA)
+        cv2.line(img, (x+w, y+r), (x+w, y+h-r), color, thickness, cv2.LINE_AA)
+        cv2.ellipse(img, (x+r, y+r), (r, r), 180, 0, 90, color, thickness, cv2.LINE_AA)
+        cv2.ellipse(img, (x+w-r, y+r), (r, r), 270, 0, 90, color, thickness, cv2.LINE_AA)
+        cv2.ellipse(img, (x+r, y+h-r), (r, r), 90, 0, 90, color, thickness, cv2.LINE_AA)
+        cv2.ellipse(img, (x+w-r, y+h-r), (r, r), 0, 0, 90, color, thickness, cv2.LINE_AA)
 
-    card_w = max_w + 2 * padding
-    card_h = len(lines) * line_h + 2 * padding
-
+def draw_card(img, x, y, title, lines, footer=None, width=250):
+    """
+    LinkedIn-ish card: header + body + footer, no spinner.
+    """
     H, W = img.shape[:2]
-    x = int(max(0, min(x, W - card_w - 1)))
-    y = int(max(0, min(y, H - card_h - 1)))
 
-    overlay = img.copy()
-    cv2.rectangle(overlay, (x, y), (x + card_w, y + card_h), (0, 0, 0), -1)
-    alpha = 0.65
-    cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, img)
-    cv2.rectangle(img, (x, y), (x + card_w, y + card_h), (255, 255, 255), 2)
+    # styling
+    padding = 10
+    radius = 11
+    header_h = 45
 
-    ty = y + padding + 18
+    bg = (18, 18, 18)
+    header_bg = (28, 28, 28)
+    border = (200, 200, 200)
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    title_scale, title_th = 0.60, 2
+    body_scale, body_th = 0.55, 1
+    foot_scale, foot_th = 0.45, 1
+
+    max_text_w = width - 1.5 * padding
+
+    wrapped = []
     for t in lines:
-        cv2.putText(img, t, (x + padding, ty), font, scale, (255, 255, 255), thickness)
-        ty += line_h
+        wrapped.extend(_wrap_text(t, font, body_scale, body_th, max_text_w))
+
+    footer_lines = []
+    if footer:
+        footer_lines = _wrap_text(footer, font, foot_scale, foot_th, max_text_w)
+
+    body_h = cv2.getTextSize("Ag", font, body_scale, body_th)[0][1]
+    foot_h = cv2.getTextSize("Ag", font, foot_scale, foot_th)[0][1]
+    title_h = cv2.getTextSize("Ag", font, title_scale, title_th)[0][1]
+
+    body_block_h = len(wrapped) * (body_h + 10)
+    footer_block_h = (len(footer_lines) * (foot_h + 8) + 8) if footer_lines else 0
+    height = header_h + padding + body_block_h + footer_block_h + padding
+
+    # clamp on screen
+    x = int(max(8, min(x, W - width - 8)))
+    y = int(max(8, min(y, H - height - 8)))
+
+    # shadow (subtle)
+    overlay = img.copy()
+    _rounded_rect(overlay, x-1, y-1, width, height, radius, (0, 0, 0), -1)
+    _rounded_rect(overlay, x, y, width, height, radius, bg, -1)
+    _rounded_rect(overlay, x, y, width, header_h, radius, header_bg, -1)
+    cv2.rectangle(overlay, (x, y + header_h - radius), (x + width, y + header_h), header_bg, -1)
+
+    cv2.addWeighted(overlay, 0.86, img, 0.14, 0, img)
+
+    # border (keep this!)
+    _rounded_rect(img, x, y, width, height, radius, border, 2)
+
+    # header text
+    tx = x + padding + 3
+    ty = y + int(header_h/2) + int(title_h/2) - 2
+    cv2.putText(img, str(title), (tx, ty + 3), font, title_scale, (255, 255, 255), title_th, cv2.LINE_AA)
+
+    # body
+    by = y + header_h + padding + body_h
+    for line in wrapped:
+        cv2.putText(img, line, (tx, by), font, body_scale, (245, 245, 245), body_th, cv2.LINE_AA)
+        by += body_h + 10
+
+    # footer
+    if footer_lines:
+        by += 6
+        for line in footer_lines:
+            cv2.putText(img, line, (tx, by), font, foot_scale, (200, 200, 200), foot_th, cv2.LINE_AA)
+            by += foot_h + 8
+
 
 def face_embed_placeholder(face_bgr):
     """Same embedding method as enroll.py: resize to 112x112 and flatten pixels."""
@@ -138,12 +218,14 @@ def main():
                 frame,
                 int(sx),
                 int(sy),
-                [
-                    f"Name: {name}",
-                    f"Similarity: {score:.3f}",
-                    "ESC to quit",
+                title=f"Name: {name}",
+                lines=[
+                 f"Similarity: {score:.3f}",
+                 "ESC to quit",
+                 "Software Developer at Sea Spungar, HAMOOOOD HABIBIBI"
                 ],
             )
+
 
         cv2.imshow("MeetBetter (local recognition)", frame)
         key = cv2.waitKey(1) & 0xFF
