@@ -8,7 +8,6 @@ import sounddevice as sd
 from rapidfuzz import fuzz, process
 from vosk import KaldiRecognizer, Model
 
-# -------- CONFIG --------
 SAMPLE_RATE = 16000
 MODEL_PATH = "models/vosk-model-small-en-us-0.15"
 
@@ -19,7 +18,6 @@ INTRO_PATTERNS = [
     r"\bthis is (\w+)",
     r"\bcall me (\w+)",
 ]
-# ------------------------
 
 with open("profiles.json") as f:
     PROFILES = json.load(f)
@@ -54,9 +52,6 @@ def audio_callback(indata, frames, time_info, status):
 
 
 def main(callback=None):
-    """
-    If callback is provided, call callback(matched_name) whenever a name is detected.
-    """
     print("🔊 Loading Vosk model…")
     model = Model(MODEL_PATH)
     rec = KaldiRecognizer(model, SAMPLE_RATE)

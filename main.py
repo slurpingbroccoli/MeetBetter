@@ -1,58 +1,59 @@
 # main.py
 import threading
+import time
+import requests
 
 import app
 import vosk_listener
 
-
-# Camera-vs-voice fusion knobs
-CAM_STRONG_SIM = 0.88       # if camera top1 >= this, it's "very confident"
-CAM_GAP_STRONG = 0.03       # if (top1 - top2) >= this, it's "clearly separated"
-VOICE_LOCK_SEC = 1000.0       # how long the UI locks to voice
-TRY_AGAIN_SEC = 2.5
+# Prevent spamming:
+FETCH_COOLDOWN_SEC = 1000.0         # minimum time between fetch attempts
+CACHE_TTL_SEC = 180.0            # reuse results for same name within 3 minutes
+LOCK_SECONDS = 1000.0             # how long voice lock lasts
 
 
-def _voice_vs_camera_decision(voice_name: str) -> None:
+_last_fetch_at = 0.0
+_cache = {}  # name -> (ts, data_dict)
+
+
+def _safe_preview_lines(data: dict) -> list[str]:
     """
-    If voice name is consistent with camera candidates, lock it.
-    If voice strongly contradicts a confident camera, ask to try again.
-    Otherwise (camera uncertain), still lock voice (voice-first policy).
+    Convert server JSON into short UI lines.
+    Adjust this to match your server response shape.
     """
-    v = (voice_name or "").strip()
-    if not v:
-        return
+    if not isinstance(data, dict):
+        return ["(bad response)"]
 
-    cam_topk = app.get_camera_topk(max_age_sec=1.0)  # [(name, sim), ...]
+    # common fields (best-effort)
+    name = str(data.get("name", "")).strip()
+    headline = str(data.get("headline", "")).strip()
+    location = str(data.get("location", "")).strip()
 
-    # If camera has nothing recent, trust voice
-    if not cam_topk:
-        app.set_voice_lock(v, seconds=VOICE_LOCK_SEC)
-        return
+    lines = []
+    if name:
+        lines.append(f"{name}")
+    if headline:
+        lines.append(f"{headline}")
+    if location:
+        lines.append(f"{location}")
 
-    cam_names = [n for (n, _) in cam_topk]
-    top1_name, top1_sim = cam_topk[0]
-    top2_sim = cam_topk[1][1] if len(cam_topk) > 1 else 0.0
-    gap = float(top1_sim - top2_sim)
+    # If server returns conversation starters, show first 2 lines
+    starters = data.get("starters")
+    if isinstance(starters, list) and starters:
+        lines.append("Starters:")
+        for s in starters[:2]:
+            lines.append(f"- {str(s)[:120]}")
 
-    voice_in_topk = v in cam_names
-
-    camera_is_strong = (top1_sim >= CAM_STRONG_SIM) and (gap >= CAM_GAP_STRONG)
-
-    # If camera is strongly saying "it's X" and voice says something else -> try again
-    if camera_is_strong and (not voice_in_topk):
-        app.set_try_again(
-            msg=f"Heard '{v}', but camera is confident it's '{top1_name}'. Please try again.",
-            seconds=TRY_AGAIN_SEC,
-        )
-        return
-
-    # Otherwise: voice-first
-    app.set_voice_lock(v, seconds=VOICE_LOCK_SEC)
+    if not lines:
+        lines = ["(no fields)"]
+    return lines
 
 
 def _start_mic_thread():
     def on_name(name: str):
-        _voice_vs_camera_decision(name)
+        app.clear_all_cards()
+        app.set_voice_lock(name, seconds=LOCK_SECONDS)
+
 
     def mic_worker():
         return vosk_listener.main(callback=on_name)
@@ -63,11 +64,92 @@ def _start_mic_thread():
 
 
 def main():
+    global _last_fetch_at
+
     print("🚀 main.py starting...")
     print("   - Starting mic in background")
-    print("   - Running camera on MAIN thread (required on macOS)\n")
+    print("   - Running camera on MAIN thread (required on macOS)")
+    print("   - Press S to fetch once locked\n")
 
     _start_mic_thread()
+
+    def fetch_console_listener():
+        print('hi')
+        global _last_fetch_at
+        while True:
+            try:
+                cmd = input().strip().lower()
+            except EOFError:
+                time.sleep(0.1)
+                continue
+
+            if cmd in ("s", "fetch"):
+                locked_name, until_ts = app.get_voice_lock()
+                now = time.time()
+
+                if not locked_name or now >= until_ts:
+                    app.set_fetch_overlay("ERROR", "Not locked", ["No active voice lock.", "Say: 'my name is ___'"], seconds=4.0)
+                    continue
+
+                if now - _last_fetch_at < FETCH_COOLDOWN_SEC:
+                    app.set_fetch_overlay(
+                        "ERROR",
+                        "Cooldown",
+                        [f"Wait {FETCH_COOLDOWN_SEC - (now - _last_fetch_at):.1f}s then press S again."],
+                        seconds=3.0,
+                    )
+                    continue
+
+                # cache
+                cached = _cache.get(locked_name.lower())
+                if cached:
+                    ts, data = cached
+                    if now - ts < CACHE_TTL_SEC:
+                        lines = _safe_preview_lines(data)
+                        app.set_fetch_overlay("DONE", f"Cached: {locked_name}", lines, seconds=10.0)
+
+                        # NEW: also push anchored profile card
+                        display_name = str(data.get("name", locked_name)).strip()
+                        headline = str(data.get("headline", "")).strip()
+                        app.set_profile_card(display_name, headline, lines, seconds=30.0)
+
+                        _last_fetch_at = now
+                        continue
+                
+
+                # do real fetch
+                _last_fetch_at = now
+                app.set_fetch_overlay("FETCHING", f"Fetching: {locked_name}", ["Please wait…"], seconds=20.0)
+
+                try:
+                    data = _fetch_profile_for(locked_name)
+                    _cache[locked_name.lower()] = (time.time(), data)
+                    lines = _safe_preview_lines(data)
+                    app.set_fetch_overlay("DONE", f"Fetched: {locked_name}", lines, seconds=15.0)
+
+                    # NEW: also push anchored profile card
+                    other_data = app.other_linkedin.json()
+                    print(other_data['name'])
+                    display_name = str(data.get("name", other_data['name'])).strip()
+                    headline = str(data.get("headline", other_data['headline'])).strip()
+                    app.set_profile_card(display_name, headline, lines, seconds=30.0)
+
+                except Exception as e:
+                    app.set_fetch_overlay("ERROR", f"Fetch failed", [str(e)[:180]], seconds=10.0)
+
+            elif cmd in ("c", "clear"):
+                locked_name, until_ts = app.get_voice_lock()
+                if locked_name:
+                    _cache.pop(locked_name.lower(), None)
+                    app.set_fetch_overlay("DONE", "Cache cleared", [f"{locked_name}"], seconds=3.0)
+                else:
+                    _cache.clear()
+                    app.set_fetch_overlay("DONE", "Cache cleared", ["All"], seconds=3.0)
+
+            elif cmd in ("help", "h", "?"):
+                print("Commands: s (fetch), c (clear cache), help")
+
+    threading.Thread(target=fetch_console_listener, daemon=True).start()
 
     # Camera must stay on main thread on macOS
     app.main()

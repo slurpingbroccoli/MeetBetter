@@ -1,26 +1,111 @@
 {
-  "vincent": {
-    "display_name": "Vincent",
-    "headline": "CS student",
-    "starters": [
-      "Ask about hackathons",
-      "Ask about favorite project"
-    ]
-  },
-  "lily": {
-    "display_name": "Lily",
-    "headline": "Designer",
-    "starters": [
-      "Ask about design tools",
-      "Ask about inspiration"
-    ]
-  },
-  "edison": {
-    "display_name": "Edison",
-    "headline": "Builder",
-    "starters": [
-      "Ask what they’re building",
-      "Ask what they’re learning"
-    ]
-  }
+  "edison": "https://example.com/demo/edison",
+    "vincent": "https://www.linkedin.com/in/vincent-bei-937487371/",
+    "lily": "https://example.com/demo/lily",
+    "jay": "https://www.linkedin.com/in/jaydasani/",
+    "jai": "https://www.linkedin.com/in/jaydasani/",
+    "jae": "https://www.linkedin.com/in/jaydasani/",
+    "j": "https://www.linkedin.com/in/jaydasani/",
+    "tithi": "https://www.linkedin.com/in/tithi007/",
+    "titi": "https://www.linkedin.com/in/tithi007/",
+    "tithy": "https://www.linkedin.com/in/tithi007/",
+    "luigi": "https://www.linkedin.com/in/luigitomasone/",
+    "louigi": "https://www.linkedin.com/in/luigitomasone/",
+    "louie g": "https://www.linkedin.com/in/luigitomasone/",
+    "razi": "https://www.linkedin.com/in/raztronaut/",
+    "razy": "https://www.linkedin.com/in/raztronaut/",
+    "razzy": "https://www.linkedin.com/in/raztronaut/",
+    "joshua": "https://www.linkedin.com/in/joshua-matte1/",
+    "josh": "https://www.linkedin.com/in/joshua-matte1/",
+    "josua": "https://www.linkedin.com/in/joshua-matte1/",
+    "andrei": "https://www.linkedin.com/in/andrei-lazakovitch-848542145/",
+    "andrey": "https://www.linkedin.com/in/andrei-lazakovitch-848542145/",
+    "andre": "https://www.linkedin.com/in/andrei-lazakovitch-848542145/",
+
+
+    "mohammed": "https://www.linkedin.com/in/mohammed2ibrahim/",
+    "muhammad": "https://www.linkedin.com/in/mohammed2ibrahim/",
+    "mohamad": "https://www.linkedin.com/in/mohammed2ibrahim/",
+    "mo": "https://www.linkedin.com/in/mohammed2ibrahim/",
+
+    "robin": "https://www.linkedin.com/in/gershmanrobin/",
+    "robyn": "https://www.linkedin.com/in/gershmanrobin/",
+    "rob": "https://www.linkedin.com/in/gershmanrobin/",
+
+    
+    "mansour": "https://www.linkedin.com/in/mansour-karami/",
+    "mansoor": "https://www.linkedin.com/in/mansour-karami/",
+    "manzor": "https://www.linkedin.com/in/mansour-karami/",
+
+    "aman": "https://www.linkedin.com/in/amanhiranpurohit/",
+    "amaan": "https://www.linkedin.com/in/amanhiranpurohit/",
+    "amon": "https://www.linkedin.com/in/amanhiranpurohit/",
+
+    "jeffrey": "https://www.linkedin.com/in/jeffrey-kwong-8168441/",
+    "jeff": "https://www.linkedin.com/in/jeffrey-kwong-8168441/",
+    "geoff": "https://www.linkedin.com/in/jeffrey-kwong-8168441/",
+
+    "matthew": "https://www.linkedin.com/in/matthew-mccracken/",
+    "matt": "https://www.linkedin.com/in/matthew-mccracken/",
+    "mathew": "https://www.linkedin.com/in/matthew-mccracken/",
+
+    "steven": "https://www.linkedin.com/in/steven-gonder/",
+    "stephen": "https://www.linkedin.com/in/steven-gonder/",
+    "steve": "https://www.linkedin.com/in/steven-gonder/",
+
+    "david": "https://www.linkedin.com/in/davidle519/",
+    "dave": "https://www.linkedin.com/in/davidle519/",
+    "daved": "https://www.linkedin.com/in/davidle519/",
+
+    "anish": "https://www.linkedin.com/in/anish-rangarajan/",
+    "aneesh": "https://www.linkedin.com/in/anish-rangarajan/",
+    "anishh": "https://www.linkedin.com/in/anish-rangarajan/",
+
+    "ayushi": "https://www.linkedin.com/in/ayushimalhotra/",
+    "aayushi": "https://www.linkedin.com/in/ayushimalhotra/",
+
+    "kaan": "https://www.linkedin.com/in/hkaanturgut/",
+    "kahn": "https://www.linkedin.com/in/hkaanturgut/",
+    "kan": "https://www.linkedin.com/in/hkaanturgut/",
+
+    "emily": "https://www.linkedin.com/in/emily-y-goodwin/",
+    "emilie": "https://www.linkedin.com/in/emily-y-goodwin/",
+    "em": "https://www.linkedin.com/in/emily-y-goodwin/",
+
+    "riya": "https://www.linkedin.com/in/riyaashukla/",
+    "ria": "https://www.linkedin.com/in/riyaashukla/",
+    "reeya": "https://www.linkedin.com/in/riyaashukla/",
+
+    "pranav": "https://www.linkedin.com/in/gpn2393/",
+    "pranab": "https://www.linkedin.com/in/gpn2393/",
+    "pronov": "https://www.linkedin.com/in/gpn2393/",
+
+    "munaz": "https://www.linkedin.com/in/munaz/",
+    "munazz": "https://www.linkedin.com/in/munaz/",
+    "munus": "https://www.linkedin.com/in/munaz/",
+
+    "luke": "https://www.linkedin.com/in/luke-p/",
+    "luc": "https://www.linkedin.com/in/luke-p/",
+    "luk": "https://www.linkedin.com/in/luke-p/",
+
+    
+    "ali": "https://www.linkedin.com/in/alikhan2510/",
+    "alee": "https://www.linkedin.com/in/alikhan2510/",
+    "ally": "https://www.linkedin.com/in/alikhan2510/",
+
+    "jason": "https://www.linkedin.com/in/jhuang03/",
+    "jayson": "https://www.linkedin.com/in/jhuang03/",
+    "jasen": "https://www.linkedin.com/in/jhuang03/",
+
+    "divya": "https://www.linkedin.com/in/divyajain-tech/",
+    "divia": "https://www.linkedin.com/in/divyajain-tech/",
+    "divyah": "https://www.linkedin.com/in/divyajain-tech/",
+
+    "konstantin": "https://www.linkedin.com/in/konstantin-delemen-a34592211/",
+    "constantine": "https://www.linkedin.com/in/konstantin-delemen-a34592211/",
+    "konstantine": "https://www.linkedin.com/in/konstantin-delemen-a34592211/",
+
+    "ameer": "https://www.linkedin.com/in/ameer-hamoodi-346889164/",
+    "amir": "https://www.linkedin.com/in/ameer-hamoodi-346889164/",
+    "aamir": "https://www.linkedin.com/in/ameer-hamoodi-346889164/"
 }
