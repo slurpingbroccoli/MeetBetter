@@ -1,11 +1,12 @@
+# vosk_listener.py
 import json
-import sounddevice as sd
 import queue
-import sys
 import re
+import sys
 
-from vosk import Model, KaldiRecognizer
-from rapidfuzz import process, fuzz
+import sounddevice as sd
+from rapidfuzz import fuzz, process
+from vosk import KaldiRecognizer, Model
 
 # -------- CONFIG --------
 SAMPLE_RATE = 16000
@@ -29,7 +30,7 @@ if not KNOWN_NAMES:
     sys.exit(1)
 
 
-def extract_name(text):
+def extract_name(text: str) -> str | None:
     t = text.lower()
     for p in INTRO_PATTERNS:
         m = re.search(p, t)
@@ -38,18 +39,18 @@ def extract_name(text):
     return None
 
 
-def fuzzy_match(name):
+def fuzzy_match(name: str) -> str | None:
     match, score, _ = process.extractOne(name, KNOWN_NAMES, scorer=fuzz.ratio)
     if score >= 80:
         return match
     return None
 
 
-q = queue.Queue()
+_q = queue.Queue()
 
 
-def audio_callback(indata, frames, time, status):
-    q.put(bytes(indata))
+def audio_callback(indata, frames, time_info, status):
+    _q.put(bytes(indata))
 
 
 def main(callback=None):
@@ -71,11 +72,10 @@ def main(callback=None):
         callback=audio_callback,
     ):
         while True:
-            data = q.get()
+            data = _q.get()
             if rec.AcceptWaveform(data):
                 result = json.loads(rec.Result())
                 text = result.get("text", "").strip()
-
                 if not text:
                     continue
 
@@ -86,15 +86,13 @@ def main(callback=None):
 
                 if match:
                     print(f"✅ Name detected: {match}")
-                    print(f"Profile → {PROFILES[match]}")
+                    print(f"Profile → {PROFILES.get(match)}")
 
-                    # ✅ NEW: notify main/app so UI can lock
                     if callback is not None:
                         try:
                             callback(match)
                         except Exception as e:
                             print("callback error:", e)
-
                 else:
                     print("❌ No matching name")
 
