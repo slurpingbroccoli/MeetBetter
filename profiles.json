@@ -1,0 +1,26 @@
+{
+  "vincent": {
+    "display_name": "Vincent",
+    "headline": "CS student",
+    "starters": [
+      "Ask about hackathons",
+      "Ask about favorite project"
+    ]
+  },
+  "lily": {
+    "display_name": "Lily",
+    "headline": "Designer",
+    "starters": [
+      "Ask about design tools",
+      "Ask about inspiration"
+    ]
+  },
+  "edison": {
+    "display_name": "Edison",
+    "headline": "Builder",
+    "starters": [
+      "Ask what they’re building",
+      "Ask what they’re learning"
+    ]
+  }
+}

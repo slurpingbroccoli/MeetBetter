@@ -1,5 +1,14 @@
+# Python envs
 .venv/
+backend/**/.venv/
+
+# Big local assets
+models/
+db/
+people/
+people.zip
+
+# caches
 __pycache__/
 *.pyc
-people/
-db/
+.DS_Store
